@@ -101,4 +101,64 @@ S3 bucket uses `force_destroy` (demo only). Confirm nothing remains (NAT Gateway
 job when repo variable `AWS_ROLE_ARN` (GitHub OIDC role) is set.
 
 ## Demo proof
-Add under `docs/`: curl output (nginx-a/b), `aws s3 ls` output, CloudWatch log snippets, screenshots.
+
+All screenshots are in [`docs/screenshots/`](docs/screenshots). Region: `ap-south-1`.
+
+### 1. Deployment
+`terraform apply` completed with **59 resources added**, and the ALB URL, API URL and bucket name were output.
+
+![terraform apply](docs/screenshots/01-terraform-apply.png)
+
+### 2. ALB load balancing (nginx-a vs nginx-b)
+Ten requests to the ALB. Responses come from both services (weighted 50/50 forward).
+
+```
+Request 1 -> nginx-b   Request 6 -> nginx-b
+Request 2 -> nginx-b   Request 7 -> nginx-b
+Request 3 -> nginx-a   Request 8 -> nginx-b
+Request 4 -> nginx-b   Request 9 -> nginx-b
+Request 5 -> nginx-a   Request 10 -> nginx-b
+```
+
+![curl loop](docs/screenshots/02-alb-roundrobin-curl.png)
+
+Browser view of the same ALB URL; each service serves its own page (green = nginx-a, blue = nginx-b):
+
+| nginx-a | nginx-b |
+|---|---|
+| ![nginx-a](docs/screenshots/03-browser-nginx-a.png) | ![nginx-b](docs/screenshots/04-browser-nginx-b.png) |
+
+### 3. Target groups and ECS
+Each target group has 2/2 healthy targets. The ECS cluster runs 2 services with 4 tasks.
+
+| Target group nginx-a | Target group nginx-b |
+|---|---|
+| ![tg a](docs/screenshots/05-target-group-nginx-a.png) | ![tg b](docs/screenshots/06-target-group-nginx-b.png) |
+
+![ECS cluster](docs/screenshots/07-ecs-cluster.png)
+![ECS tasks](docs/screenshots/08-ecs-tasks.png)
+
+### 4. File upload API -> Lambda -> S3
+`POST /upload?filename=test.txt` returns `"message": "uploaded"`:
+
+![upload response](docs/screenshots/09-upload-response.png)
+
+The object appears in the S3 bucket under `uploads/`:
+
+![s3 listing](docs/screenshots/10-s3-listing.png)
+
+### 5. CloudWatch logs
+Lambda log shows `Stored s3://kstpl-demo-uploads-293528978903/uploads/9713d001-test.txt (16 bytes)`.
+The ECS nginx container logs are shipped to `/ecs/kstpl-demo-nginx-a` via the `awslogs` driver.
+
+![cloudwatch logs](docs/screenshots/11-cloudwatch-logs.png)
+
+### 6. Input validation and security
+Uploading `bad.exe` is rejected with HTTP 400, and nothing is written to S3:
+
+![validation](docs/screenshots/12-validation-bad-exe.png)
+![validation 400](docs/screenshots/13-validation-http-400.png)
+
+The S3 bucket has **Block all public access** turned on:
+
+![block public access](docs/screenshots/14-s3-block-public-access.png)
